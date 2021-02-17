@@ -3,6 +3,12 @@
 *.sh
 *.json
 *.tar
+plugins/appstore.lua
+plugins/betaprofile.lua
+plugins/coronavirus.lua
+plugins/ipsw.lua
+plugins/itunes.lua
+plugins/shsh.lua
 conf/configuration.lua
 plugins/private/
 plugins/private/*.lua
