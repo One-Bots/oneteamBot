@@ -1,0 +1,16 @@
+.DS_Store
+.env
+*.sh
+*.json
+*.tar
+conf/configuration.lua
+plugins/private/
+plugins/private/*.lua
+conf/.env
+!install.sh
+!launch.sh
+!conf/
+._.DS_Store
+**/.DS_Store
+**/._.DS_Store
+configuration.lua
