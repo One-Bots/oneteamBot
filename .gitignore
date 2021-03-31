@@ -8,6 +8,7 @@ plugins/betaprofile.lua
 plugins/coronavirus.lua
 plugins/ipsw.lua
 plugins/itunes.lua
+plugins/porn.lua
 plugins/shsh.lua
 conf/configuration.lua
 plugins/private/

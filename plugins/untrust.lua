@@ -1,6 +1,11 @@
+--[[
+    Copyright 2017 Diego Barreiro <diego@makeroid.io>
+    This code is licensed under the MIT. See LICENSE for details.
+]]
+
 local untrust = {}
 local oneteam = require('oneteam')
-local redis = require('libs.redis')
+local redis = dofile('libs/redis.lua')
 
 function untrust:init()
     untrust.commands = oneteam.commands(self.info.username):command('untrust').table
@@ -51,8 +56,12 @@ function untrust:on_message(message, configuration, language)
     then
         input = '@' .. input
     end
-    local user = oneteam.get_user(input)
-    or oneteam.get_chat(input) -- Resolve the username/ID to a user object.
+    local success = oneteam.get_user(input)
+    if not success then
+        user = oneteam.get_chat(input)
+    else
+        user = oneteam.get_chat(success.result.id)
+    end
     if not user
     then
         return oneteam.send_reply(
@@ -105,12 +114,12 @@ function untrust:on_message(message, configuration, language)
             message.chat.id
         ),
         'log administrative actions'
-    )
+    ) and oneteam.get_setting(message.chat.id, 'log untrust')
     then
         oneteam.send_message(
             oneteam.get_log_chat(message.chat.id),
             string.format(
-                '<pre>%s%s [%s] has untrusted %s%s [%s] in %s%s [%s].</pre>',
+                '#action #untrust #admin_'..tostring(message.from.id)..' #user_'..tostring(user.id)..' #group_'..tostring(message.chat.id):gsub("%-", "")..'\n\n<pre>%s%s [%s] has untrusted %s%s [%s] in %s%s [%s].</pre>',
                 message.from.username
                 and '@'
                 or '',

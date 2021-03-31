@@ -1,13 +1,13 @@
 local warn = {}
 local oneteam = require('oneteam')
-local redis = require('libs.redis')
+local redis = dofile('libs/redis.lua')
 
 function warn:init()
-    warn.commands = oneteam.commands(self.info.username):command('warn').table
-    warn.help = '/warn [user] - Warns a user in the current chat. This command can only be used by moderators and administrators of a supergroup. Once a user has reached the maximum allowed number of warnings allowed in the chat, the configured action for the chat is performed on them.'
+    warn.commands = oneteam.commands(self.info.username):command('warn'):command('w').table
+    warn.help = '/warn [user] - Warns a user in the current chat. This command can only be used by moderators and administrators of a supergroup. Once a user has reached the maximum allowed number of warnings allowed in the chat, the configured action for the chat is performed on them. Alias: /w'
 end
 
-function warn.on_callback_query(_, callback_query, message, configuration)
+function warn:on_callback_query(callback_query, message, configuration)
     if not callback_query
     or not callback_query.data
     or not callback_query.data:match('^%a+%:%-%d+%:%d+$')
@@ -106,7 +106,7 @@ function warn.on_callback_query(_, callback_query, message, configuration)
     end
 end
 
-function warn:on_message(message, _, language)
+function warn:on_message(message, configuration, language)
     if message.chat.type ~= 'supergroup'
     then
         return oneteam.send_reply(
@@ -146,8 +146,12 @@ function warn:on_message(message, _, language)
     then
         input = '@' .. input
     end
-    local user = oneteam.get_user(input)
-    or oneteam.get_chat(input) -- Resolve the username/ID to a user object.
+    local success = oneteam.get_user(input)
+    if not success then
+        user = oneteam.get_chat(input)
+    else
+        user = oneteam.get_chat(success.result.id)
+    end
     if not user
     then
         return oneteam.send_reply(
@@ -178,6 +182,12 @@ function warn:on_message(message, _, language)
         return oneteam.send_reply(
             message,
             'I cannot warn this user because they are a moderator or an administrator in this chat.'
+        )
+    elseif oneteam.get_setting(message.chat.id, 'trusted permissions warnings') and oneteam.is_trusted_user(message.chat.id, user.id)
+    then
+        return oneteam.send_reply(
+            message,
+            'I cannot warn this user because he is a trusted user and trusted users are immune to warns in this chat.'
         )
     elseif status.result.status == 'left'
     or status.result.status == 'kicked'
@@ -226,40 +236,87 @@ function warn:on_message(message, _, language)
             )
         end
     end
-    oneteam.increase_administrative_action(message.chat.id, user.id, 'warns')
-    reason = reason and ', for ' .. reason:gsub('^for ', '') or ''
-    local admin_username = oneteam.get_formatted_user(message.from.id, message.from.first_name, 'html')
-    local warned_username = oneteam.get_formatted_user(user.id, user.first_name, 'html')
-    if oneteam.get_setting(message.chat.id, 'log administrative actions') then
-        local log_chat = oneteam.get_log_chat(message.chat.id)
-        local output = '%s <code>[%s]</code> has warned %s <code>[%s]</code> in %s <code>[%s]</code>%s.\n%s %s'
-        output = string.format(output, admin_username, message.from.id, warned_username, user.id, oneteam.escape_html(message.chat.title), message.chat.id, reason, '#chat' .. tostring(message.chat.id):gsub('^-100', ''), '#user' .. user.id)
-        oneteam.send_message(log_chat, output, 'html')
-    end
-    if message.reply and oneteam.get_setting(message.chat.id, 'delete reply on action') then
-        oneteam.delete_message(message.chat.id, message.reply.message_id)
-        oneteam.delete_message(message.chat.id, message.message_id)
-    end
-    local output = '%s has warned %s%s.'
-    output = string.format(output, admin_username, warned_username, reason)
-    local keyboard = oneteam.inline_keyboard():row(
-        oneteam.row():callback_data_button(
-            'Reset Warnings',
+    redis:hincrby(
+        string.format(
+            'chat:%s:%s',
+            message.chat.id,
+            user.id
+        ),
+        'bans',
+        1
+    )
+    if redis:hget(
+        string.format(
+            'chat:%s:settings',
+            message.chat.id
+        ),
+        'log administrative actions'
+    ) and oneteam.get_setting(message.chat.id, 'log warn') then
+        oneteam.send_message(
+            oneteam.get_log_chat(message.chat.id),
             string.format(
-                'warn:reset:%s:%s',
+                '#action #warn #admin_'..tostring(message.from.id)..' #user_'..tostring(user.id)..' #group_'..tostring(message.chat.id):gsub("%-", "")..'\n\n<pre>%s%s [%s] has warned %s%s [%s] in %s%s [%s]%s.</pre>',
+                message.from.username and '@' or '',
+                message.from.username or oneteam.escape_html(message.from.first_name),
+                message.from.id,
+                user.username and '@' or '',
+                user.username or oneteam.escape_html(user.first_name),
+                user.id,
+                message.chat.username and '@' or '',
+                message.chat.username or oneteam.escape_html(message.chat.title),
                 message.chat.id,
-                user.id
+                reason and ', for ' .. reason or ''
+            ),
+            'html'
+        )
+    end
+    if message.reply
+    and oneteam.get_setting(
+        message.chat.id,
+        'delete reply on action'
+    )
+    then
+        oneteam.delete_message(
+            message.chat.id,
+            message.reply.message_id
+        )
+    end
+    return oneteam.send_message(
+        message.chat.id,
+        string.format(
+            '<pre>%s%s has warned %s%s%s. [%s/%s]</pre>',
+            message.from.username and '@' or '',
+            message.from.username or oneteam.escape_html(message.from.first_name),
+            user.username and '@' or '',
+            user.username or oneteam.escape_html(user.first_name),
+            reason and ', for ' .. reason or '',
+            amount,
+            maximum
+        ),
+        'html',
+        true,
+        false,
+        nil,
+        oneteam.inline_keyboard():row(
+            oneteam.row()
+            :callback_data_button(
+                'Reset Warnings',
+                string.format(
+                    'warn:reset:%s:%s',
+                    message.chat.id,
+                    user.id
+                )
             )
-        ):callback_data_button(
-            'Remove 1 Warning',
-            string.format(
-                'warn:remove:%s:%s',
-                message.chat.id,
-                user.id
+            :callback_data_button(
+                'Remove 1 Warning',
+                string.format(
+                    'warn:remove:%s:%s',
+                    message.chat.id,
+                    user.id
+                )
             )
         )
     )
-    return oneteam.send_message(message.chat.id, output, 'html', true, false, nil, keyboard)
 end
 
 return warn
