@@ -3,7 +3,7 @@
 *.sh
 *.json
 *.tar
-*.bak
+plugins/*.bak
 plugins/appstore.lua
 plugins/betaprofile.lua
 plugins/onebeta.lua
