@@ -1,6 +1,6 @@
 local setwelcome = {}
 local oneteam = require('oneteam')
-local redis = require('libs.redis')
+local redis = dofile('libs/redis.lua')
 
 function setwelcome:init()
     setwelcome.commands = oneteam.commands(self.info.username):command('setwelcome').table
@@ -55,7 +55,7 @@ function setwelcome:on_message(message, configuration, language)
         validate.result.message_id
     )
     redis:hset(
-        'chat:' .. message.chat.id .. ':info',
+        'chat:' .. message.chat.id .. ':values',
         'welcome message',
         input
     )

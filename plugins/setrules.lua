@@ -1,6 +1,11 @@
+--[[
+    Copyright 2017 Diego Barreiro <diego@makeroid.io>
+    This code is licensed under the MIT. See LICENSE for details.
+]]
+
 local setrules = {}
 local oneteam = require('oneteam')
-local redis = require('libs.redis')
+local redis = dofile('libs/redis.lua')
 
 function setrules:init()
     setrules.commands = oneteam.commands(self.info.username):command('setrules').table
@@ -27,7 +32,7 @@ function setrules:on_message(message, configuration, language)
         )
     end
     redis:hset(
-        'chat:' .. message.chat.id .. ':info',
+        'chat:' .. message.chat.id .. ':values',
         'rules',
         input
     )

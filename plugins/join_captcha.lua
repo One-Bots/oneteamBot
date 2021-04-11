@@ -46,7 +46,7 @@ function join_captcha.cron(_, configuration)
     end
 end
 
-function join_captcha.on_callback_query(_, callback_query, message)
+function join_captcha.on_callback_query(k, callback_query, message)
     if not callback_query.data:match('^.-:.-:.-$') then
         return false
     end

@@ -1,17 +1,3 @@
---[[
-                       _   _        _
-       _ __ ___   __ _| |_| |_ __ _| |_ __ _
-      | '_ ` _ \ / _` | __| __/ _` | __/ _` |
-      | | | | | | (_| | |_| || (_| | || (_| |
-      |_| |_| |_|\__,_|\__|\__\__,_|\__\__,_|
-
-      v2.0.0
-
-      Copyright 2017 Matthew Hesketh <wrxck0@gmail.com> & Diego Barreiro <diego@makeroid.io>
-      See LICENSE for details
-
-]]
-
 local oneteam = {}
 
 local http = require('socket.http')
@@ -26,11 +12,16 @@ local api = require('telegram-bot-lua.core').configure(configuration.bot_token)
 local tools = require('telegram-bot-lua.tools')
 local socket = require('socket')
 local utils = dofile('libs/utils.lua')
+local captcha_lib = require('captcha')
 
 -- Public JSON lib
 jsonlib = dofile('libs/json.lua')
 
 function oneteam:init()
+    if oneteam.is_reloading then
+        configuration = require('configuration')
+        oneteam.is_reloading = false
+    end
     self.info = api.info -- Set the bot's information to the object fetched from the Telegram bot API.
     oneteam.info = api.info
     self.plugins = {} -- Make a table for the bot's plugins.
@@ -39,10 +30,19 @@ function oneteam:init()
     self.tools = tools
     oneteam.tools = tools
     self.configuration = configuration
+    self.chats = {}
+    self.users = {}
+    self.replies = {}
     self.plugin_list = {}
     self.inline_plugin_list = {}
     for k, v in ipairs(configuration.plugins) do -- Iterate over all of the configured plugins.
-        local plugin = dofile('plugins/' .. v .. '.lua') -- Load each plugin.
+        local true_path = v
+        local plugin = require('plugins.' .. true_path) -- Load each plugin.
+        if not plugin then
+            error('Invalid plugin: ' .. true_path)
+        elseif oneteam.is_duplicate(configuration.plugins, v) then
+            error('Duplicate plugin: ' .. v)
+        end
         self.plugins[k] = plugin
         self.plugins[k].name = v
         if plugin.init then -- If the plugin has an `init` function, run it.
@@ -66,7 +66,11 @@ function oneteam:init()
     print(connected_message)
     local info_message = '\tUsername: @' .. self.info.username .. '\n\tName: ' .. self.info.name .. '\n\tID: ' .. self.info.id
     print('\n' .. info_message .. '\n')
-    self.version = 'v2.0.0'
+    if redis:get('oneteam:version') ~= configuration.version then
+        local success = dofile('migrate.lua')
+        print(success)
+    end
+    self.version = configuration.version
     -- Make necessary database changes if the version has changed.
     if not redis:get('oneteam:version') or redis:get('oneteam:version') ~= self.version then
         redis:set('oneteam:version', self.version)
@@ -80,6 +84,12 @@ function oneteam:init()
     oneteam.send_message(configuration.log_chat, init_message:gsub('\t', ''), 'html')
     for _, admin in pairs(configuration.admins) do
         oneteam.send_message(admin, init_message:gsub('\t', ''), 'html')
+    end
+    local shutdown = redis:get('oneteam:shutdown')
+    if shutdown then
+        local chat_id, message_id = shutdown:match('^(%-?%d+):(%d*)$')
+        oneteam.edit_message_text(chat_id, message_id, 'Successfully rebooted!')
+        redis:del('oneteam:shutdown')
     end
     return true
 end
@@ -191,26 +201,26 @@ function oneteam:run(configuration, token)
                             )
                         )
                     end
-                elseif v.callback_query then
+                
+                                elseif v.callback_query then
                     if v.callback_query.message and v.callback_query.message.reply_to_message then
                         v.callback_query.message.reply = v.callback_query.message.reply_to_message
                         v.callback_query.message.reply_to_message = nil
                     end
-                    self.callback_query = v.callback_query
-                    self.message = v.callback_query.message or false
-                    oneteam.on_callback_query(self)
+                    oneteam.on_callback_query(self, v.callback_query.message, v.callback_query)
                     if configuration.debug then
                         print(
                             string.format(
-                                '%s[33m[Update Callback #%s] Callback query from %s [%s]%s[0m',
+                                '%s[33m[Update #%s] Callback query from %s%s[0m',
                                 string.char(27),
                                 v.update_id,
-                                v.callback_query.from.first_name,
                                 v.callback_query.from.id,
                                 string.char(27)
                             )
                         )
                     end
+                
+                
                 elseif v.pre_checkout_query then
                     oneteam.send_message(configuration.admins[1], json.encode(v, { ['indent'] = true }))
                     -- To be improved. Sends the object containing payment-related info to the first configured
@@ -270,11 +280,17 @@ function oneteam:on_message()
         return false
     end
     message = oneteam.sort_message(message) -- Process the message.
+    self.is_user_blocklisted, self.is_globally_blocklisted, self.is_globally_banned = oneteam.is_user_blocklisted(message)
+    -- We only want this functionality if the bot owner has been granted API permission to SpamWatch!
+    self.is_spamwatch_blocklisted = configuration.keys.spamwatch ~= '' and oneteam.is_spamwatch_blocklisted(message) or false
     self.is_user_blacklisted = oneteam.is_user_blacklisted(message)
 
+    if self.is_globally_banned and message.chat.type ~= 'private' then -- Only for the worst of the worst
+        oneteam.ban_chat_member(message.chat.id, message.from.id)
+    end
     local language = require('languages.' .. oneteam.get_user_language(message.from.id))
     if oneteam.is_group(message) and oneteam.get_setting(message.chat.id, 'force group language') then
-        language = require('languages.' .. (oneteam.get_value(message.chat.id, 'group language') or 'en_gb'))
+        language = require('languages.' .. (oneteam.get_value(message.chat.id, 'group language') or 'en_us'))
     end
     self.language = language
 
@@ -295,56 +311,125 @@ function oneteam:on_message()
         if oneteam.process_deeplinks(message) then
             return true
         end
+        message = oneteam.process_nicknames(message)
+        if not self.chats[tostring(message.chat.id)] then
+            self.chats[tostring(message.chat.id)] = message.chat
+            self.chats[tostring(message.chat.id)].disabled_plugins = redis:smembers('disabled_plugins:' .. message.chat.id) or {}
+        end
         -- If the user isn't current AFK, and they say they're going to be right back, we can
         -- assume that they are now going to be AFK, so we'll help them out and set them that
         -- way by making the message text the /afk command, which will later trigger the plugin.
-        if (message.text:lower():match('^i?\'?l?l? ?brb.?$') and not redis:hget('afk:' .. message.chat.id .. ':' .. message.from.id, 'since')) then
-            message.text = '/afk'
+       
+
+    self.is_command = false
+    self.is_command_done = false
+    self.is_allowed_beta_access = false
+    self.is_telegram = false
+
+    -- If the message is one of those pesky Telegram channel pins, it won't send a service message. We'll trick it.
+    if message.from.id == 777000 and message.forward_from_chat and message.forward_from_chat.type == 'channel' then
+        self.is_telegram = true
+        message.is_service_message = true
+        message.service_message = 'pinned_message'
+        message.pinned_message = {
+            ['text'] = message.text,
+            ['date'] = message.date,
+            ['chat'] = message.chat,
+            ['from'] = message.from,
+            ['message_id'] = message.message_id,
+            ['entities'] = message.entities,
+            ['forward_from_message_id'] = message.forward_from_message_id,
+            ['forward_from_chat'] = message.forward_from_chat,
+            ['forward_date'] = message.forward_date
+        }
+    end
+
+    if message.text:match('^[/!#][%w_]+') and message.chat.type == 'supergroup' then
+        local command, input = message.text:lower():match('^[/!#]([%w_]+)(.*)$')
+        local all = redis:hgetall('chat:' .. message.chat.id .. ':aliases')
+        for alias, original in pairs(all) do
+            if command == alias then
+                message.text = '/' .. original .. input
+                message.is_alias = true
+                break
+            end
         end
-        -- A boolean value to decide later on, whether the message is intended for the current plugin from the iterated table.
-        self.is_command = false
-        -- This is the main loop which iterates over configured plugins and runs the appropriate functions.
-        self.is_done = false
-        for _, plugin in ipairs(self.plugins) do
-            local commands = #plugin.commands or {}
-            for i = 1, commands do
-                if message.text:match(plugin.commands[i]) then
-                    self.is_command = true
-                    message.command = plugin.commands[i]:match('([%w_%-]+)')
-                    if plugin.on_message then
-                        if plugin.name ~= 'administration' and oneteam.is_plugin_disabled(plugin.name, message) then
-                            if message.chat.type ~= 'private' and not redis:get(string.format('chat:%s:dismiss_disabled_message:%s', message.chat.id, plugin.name)) then
-                                local keyboard = oneteam.inline_keyboard():row(oneteam.row():callback_data_button('Dismiss', 'plugins:' .. message.chat.id .. ':dismiss_disabled_message:' .. plugin.name):callback_data_button('Enable', 'plugins:' .. message.chat.id .. ':enable_via_message:' .. plugin.name))
-                                return oneteam.send_message(message.chat.id, string.format('%s is disabled in this chat.', plugin.name:gsub('^%l', string.upper)), nil, true, false, nil, keyboard)
+    end
+
+    -- This is the main loop which iterates over configured plugins and runs the appropriate functions.
+    for _, plugin in ipairs(self.plugins) do
+        if not oneteam.is_plugin_disabled(self, plugin.name, message) then
+            if plugin.is_beta_plugin and oneteam.is_global_admin(message.from.id) then
+                self.is_allowed_beta_access = true
+            end
+            if not plugin.is_beta_plugin or (plugin.is_beta_plugin and self.is_allowed_beta_access) then
+                local commands = #plugin.commands or {}
+                for i = 1, commands do
+                    if message.text:match(plugin.commands[i]) and not self.is_command_done and not self.is_telegram and (not message.is_edited or oneteam.is_global_admin(message.from.id)) then
+                        self.is_command = true
+                        message.command = plugin.commands[i]:match('([%w_%-]+)')
+                        if plugin.on_message then
+                            local old_message = message.text
+                            if oneteam.is_global_admin(message.from.id) and message.text:match('^.- && .-$') then
+                                message.text = message.text:match('^(.-) && .-$')
                             end
-                            return false
+                            local success, result = pcall(function()
+                                return plugin.on_message(self, message, configuration, language)
+                            end)
+                            message.text = old_message
+                            if not success then
+                                oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text), configuration.log_chat)
+                            end
+                            if oneteam.get_setting(message.chat.id, 'delete commands') and self.is_command and not redis:sismember('chat:' .. message.chat.id .. ':no_delete', tostring(plugin.name)) and not message.is_natural_language then
+                                oneteam.delete_message(message.chat.id, message.message_id)
+                            end
+                            self.is_command_done = true
                         end
-                        local success, result = pcall(function()
-                            return plugin.on_message(self, message, configuration, language)
-                        end)
-                        if not success then
-                            oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text), configuration.log_chat)
-                        end
-                        if oneteam.get_setting(message.chat.id, 'delete commands') and self.is_command and not redis:sismember('chat:' .. message.chat.id .. ':no_delete', tostring(plugin.name)) and not message.is_natural_language then
-                            oneteam.delete_message(message.chat.id, message.message_id)
-                        end
-                        self.is_done = true
                     end
+                end
+            end
+
+            -- Allow plugins to handle new chat participants.
+            if message.new_chat_members and plugin.on_member_join then
+                local success, result = pcall(function()
+                    return plugin.on_member_join(self, message, configuration, language)
+                end)
+                if not success then
+                    oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text),
+                    configuration.log_chat)
+                end
+            end
+
+            -- Allow plugins to handle every new message (handy for anti-spam).
+            if (message.text or message.is_media) and plugin.on_new_message then
+                local success, result = pcall(function()
+                    return plugin.on_new_message(self, message, configuration, language)
+                end)
+                if not success then
+                    oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text or tostring(message.media_type),
+                    configuration.log_chat))
+                end
+            end
+
+            -- Allow plugins to handle service messages, and pass the type of service message before the message object.
+            if message.is_service_message and plugin.on_service_message then
+                local success, result = pcall(function()
+                    return plugin.on_service_message(self, message.service_message:gsub('_', ' '), message, configuration, language)
+                end)
+                if not success then
+                    oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text or tostring(message.media_type),
+                    configuration.log_chat))
                 end
             end
         end
     end
-    collectgarbage()
-    oneteam.process_message(self)
-    if self.is_done or self.is_user_blacklisted then
-        self.is_done = false
-        return true
+    oneteam.process_message(self, message)
+    self.is_done = true
+    self.is_command_done = false
+    self.is_ai = false
+    return
     end
-    -- Anything miscellaneous is processed here, things which are perhaps plugin-specific
-    -- and just not relevant to the core `oneteam.on_message` function.
-    oneteam.process_plugin_extras(self)
-    redis:incr('stats:messages:received')
-    return true
+       
 end
 
 function oneteam:process_plugin_extras()
@@ -472,6 +557,8 @@ function oneteam:process_plugin_extras()
         end
     end
     --]=====]
+    
+
 
     -- Process the BugReports
     if oneteam.is_global_admin(message.from.id) and message.chat.id == configuration.bug_reports_chat and message.reply and message.reply.forward_from and not message.text:match('^[/!#]') then
@@ -486,7 +573,16 @@ function oneteam:process_plugin_extras()
         )
     end
 
-
+            -- Allow plugins to handle every new message (handy for anti-spam).
+            if (message.text or message.is_media) then
+                local success, result = pcall(function()
+                    return plugin.on_new_message(self, message, configuration, language)
+                end)
+                if not success then
+                    oneteam.exception(self, result, string.format('%s: %s', message.from.id, message.text or tostring(message.media_type),
+                    configuration.log_chat))
+                  end
+               end
 
     -- Process @admin in report
     if not oneteam.is_plugin_disabled('report', message) and message.text:match('^@admin') and message.chat.type ~= 'private' then
@@ -608,10 +704,9 @@ function oneteam:on_inline_query()
     return help.on_inline_query(self, inline_query, configuration, language)
 end
 
-function oneteam:on_callback_query()
-    redis:incr('stats:callbacks:received')
-    local callback_query = self.callback_query
-    local message = self.message
+
+function oneteam:on_callback_query(message, callback_query)
+    if not callback_query.from then return false end
     if not callback_query.message or not callback_query.message.chat then
         message = {
             ['chat'] = {},
@@ -621,32 +716,43 @@ function oneteam:on_callback_query()
     else
         message = callback_query.message
         message.exists = true
+        message = oneteam.process_nicknames(message)
+        callback_query = oneteam.process_nicknames(callback_query)
     end
-    local language = dofile('languages/' .. oneteam.get_user_language(callback_query.from.id) .. '.lua')
+    if not self.chats[tostring(message.chat.id)] then
+        self.chats[tostring(message.chat.id)] = message.chat
+        self.chats[tostring(message.chat.id)].disabled_plugins = redis:smembers('disabled_plugins:' .. message.chat.id) or {}
+    end
+    local language = require('languages.' .. oneteam.get_user_language(callback_query.from.id))
     if message.chat.id and oneteam.is_group(message) and oneteam.get_setting(message.chat.id, 'force group language') then
-        language = dofile('languages/' .. (oneteam.get_value(message.chat.id, 'group language') or 'en_gb') .. '.lua')
+        language = require('languages.' .. (oneteam.get_value(message.chat.id, 'group language') or 'en_gb'))
     end
     self.language = language
-    if redis:get('global_blacklist:' .. callback_query.from.id) then
-        return false, 'This user is globally blacklisted!'
+    if redis:get('global_blocklist:' .. callback_query.from.id) and not callback_query.data:match('^join_captcha') and not oneteam.is_global_admin(callback_query.from.id) then
+        return false, 'This user is globally blocklisted!'
     elseif message and message.exists then
-        if message.reply and message.chat.type ~= 'channel' and callback_query.from.id ~= message.reply.from.id and not callback_query.data:match('^game:') and not oneteam.is_global_admin(callback_query.from.id) then
+        if message.reply and message.chat.type ~= 'channel' and callback_query.from.id ~= message.reply.from.id and not callback_query.data:match('^game:') and not callback_query.data:match('^report:') and not oneteam.is_global_admin(callback_query.from.id) then
             local output = 'Only ' .. message.reply.from.first_name .. ' can use this!'
             return oneteam.answer_callback_query(callback_query.id, output)
         end
     end
     for _, plugin in ipairs(self.plugins) do
-        if plugin.name == callback_query.data:match('^(.-):.-$') and plugin.on_callback_query then
-            callback_query.data = callback_query.data:match('^%a+:(.-)$')
+        if not callback_query.data or not callback_query.from then
+            return false
+        elseif plugin.name == callback_query.data:match('^(.-):.-$') and plugin.on_callback_query then
+            callback_query.data = callback_query.data:match('^[%a_]+:(.-)$')
             if not callback_query.data then
                 plugin = callback_query.data
                 callback_query = ''
             end
-            local success, result = pcall(function()
-                return plugin.on_callback_query(self, callback_query, message or false, configuration, language)
-            end)
+            local success, result = pcall(
+                function()
+                    return plugin.on_callback_query(self, callback_query, message or false, configuration, language)
+                end
+            )
             if not success then
-                oneteam.answer_callback_query(callback_query.id, language['errors']['generic'])
+                oneteam.send_message(configuration.admins[1], json.encode(callback_query, {indent=true}))
+                -- oneteam.answer_callback_query(callback_query.id, language['errors']['generic'])
                 local exception = string.format('%s: %s', callback_query.from.id, callback_query.data)
                 oneteam.exception(self, result, exception, configuration.log_chat)
                 return false, result
@@ -655,6 +761,61 @@ function oneteam:on_callback_query()
     end
     return true
 end
+
+
+function oneteam:process_message(message)
+    if not message.chat then
+        return true
+    end
+    if message.chat and message.chat.type ~= 'private' and not oneteam.service_message(message) and not oneteam.is_plugin_disabled(self, 'statistics', message) and not oneteam.is_privacy_enabled(message.from.id) and not self.is_blocklisted then
+        redis:incr('messages:' .. message.from.id .. ':' .. message.chat.id)
+    end
+    if message.new_chat_members and oneteam.get_setting(message.chat.id, 'use administration') and oneteam.get_setting(message.chat.id, 'antibot') and not oneteam.is_group_admin(message.chat.id, message.from.id) and not oneteam.is_global_admin(message.from.id) then
+        local kicked = {}
+        local usernames = {}
+        for _, v in pairs(message.new_chat_members) do
+            if v.username and v.username:lower():match('bot$') and v.id ~= message.from.id and v.id ~= self.info.id and tostring(v.is_bot) == 'true' then
+                local success = oneteam.kick_chat_member(message.chat.id, v.id)
+                if success then
+                    table.insert(kicked, oneteam.escape_html(v.first_name) .. ' [' .. v.id .. ']')
+                    table.insert(usernames, '@' .. v.username)
+                end
+            end
+        end
+        if #kicked > 0 and #usernames > 0 and #kicked == #usernames then
+            local log_chat = oneteam.get_log_chat(message.chat.id)
+            oneteam.send_message(log_chat, string.format('<pre>%s [%s] has kicked %s from %s [%s] because anti-bot is enabled.</pre>', oneteam.escape_html(self.info.first_name), self.info.id, table.concat(kicked, ', '), oneteam.escape_html(message.chat.title), message.chat.id), 'html')
+            return oneteam.send_message(message, string.format('Kicked %s because anti-bot is enabled.', table.concat(usernames, ', ')))
+        end
+    end
+end
+
+function oneteam.process_nicknames(message)
+    local nickname = redis:hget('user:' .. message.from.id .. ':info', 'nickname')
+    if nickname then
+        message.from.original_name = message.from.name
+        message.from.has_nickname = true
+        message.from.name = nickname
+        message.from.first_name = nickname
+        message.from.last_name = nil
+    else
+        message.from.has_nickname = false
+    end
+    if message.reply then
+        nickname = redis:hget('user:' .. message.reply.from.id .. ':info', 'nickname')
+        if nickname then
+            message.reply.from.original_name = message.reply.from.name
+            message.reply.from.has_nickname = true
+            message.reply.from.name = nickname
+            message.reply.from.first_name = nickname
+            message.reply.from.last_name = nil
+        else
+            message.reply.from.has_nickname = false
+        end
+    end
+    return message
+end
+
 
 -- A variant of oneteam.send_message(), optimised for sending a message as a reply that forces a
 -- reply back from the user.
@@ -735,6 +896,239 @@ function oneteam:exception(err, message, log_chat)
     err = nil
     message = nil
     log_chat = nil
+end
+
+function oneteam.is_group_admin(chat_id, user_id, is_real_admin)
+    if not chat_id or not user_id then
+        return false
+    elseif oneteam.is_global_admin(chat_id) or oneteam.is_global_admin(user_id) then
+        return true
+    elseif not is_real_admin and oneteam.is_group_mod(chat_id, user_id) then
+        return true
+    end
+    local user, res = oneteam.get_chat_member(chat_id, user_id)
+    if not user or not user.result then
+        return false, res
+    elseif user.result.status == 'creator' or user.result.status == 'administrator' then
+        return true, res
+    end
+    return false, user.result.status
+end
+
+function oneteam.is_group_mod(chat_id, user_id)
+    if not chat_id or not user_id then
+        return false
+    elseif redis:sismember('administration:' .. chat_id .. ':mods', user_id) then
+        return true
+    end
+    return false
+end
+
+function oneteam.is_global_admin(id)
+    for _, v in pairs(configuration.admins) do
+        if id == v then
+            return true
+        end
+    end
+    return false
+end
+
+function oneteam.get_user(input, force_api, is_id_plugin, cache_only)
+    if tonumber(input) == nil and input then -- check it's not an ID
+        input = input:match('^%@?(.-)$')
+        input = redis:get('username:' .. input:lower())
+    end
+    if not input or tonumber(input) == nil then -- if it's still not an ID then we'll give up
+        return false
+    end
+    local user = redis:hgetall('user:' .. tostring(input) .. ':info')
+    if is_id_plugin and user.id then
+        local success = oneteam.get_chat(user.id) -- Try and get latest info about the user for the ID plugin
+        if success then
+            return success
+        end
+    end
+    if user.id then
+        return {
+            ['result'] = {
+                ['id'] = tonumber(user.id),
+                ['type'] = user.type,
+                ['name'] = user.name,
+                ['first_name'] = user.first_name,
+                ['last_name'] = user.last_name,
+                ['username'] = user.username,
+                ['is_bot'] = user.is_bot
+            }
+        }
+    end
+    if force_api then
+        return oneteam.get_chat(input)
+    end
+    return false
+end
+
+function oneteam.get_inline_list(username, offset)
+    offset = offset and tonumber(offset) or 0
+    local inline_list = {}
+    table.sort(inline_plugin_list)
+    for k, v in pairs(inline_plugin_list) do
+        if k > offset and k < offset + 50 then -- The bot API only accepts a maximum of 50 results, hence we need the offset.
+            v = v:gsub('\n', ' ')
+            table.insert(
+                inline_list,
+                oneteam.inline_result()
+                :type('article')
+                :id(tostring(k))
+                :title(v:match('^(/.-) %- .-$'))
+                :description(v:match('^/.- %- (.-)$'))
+                :input_message_content(
+                    oneteam.input_text_message_content(
+                        string.format(
+                            '• %s - %s\n\nTo use this command inline, you must use the syntax:\n@%s %s',
+                            v:match('^(/.-) %- .-$'),
+                            v:match('^/.- %- (.-)$'),
+                            username,
+                            v:match('^(/.-) %- .-$')
+                        )
+                    )
+                )
+                :reply_markup(
+                    oneteam.inline_keyboard():row(
+                        oneteam.row():switch_inline_query_button('Show me how!', v:match('^(/.-) '))
+                    )
+                )
+            )
+        end
+    end
+    return inline_list
+end
+
+
+function oneteam.format_time(seconds)
+    if not seconds or tonumber(seconds) == nil then
+        return false
+    end
+    seconds = tonumber(seconds) -- Make sure we're handling a numerical value
+    local minutes = math.floor(seconds / 60)
+    if minutes == 0 then
+        return seconds ~= 1 and seconds .. ' seconds' or seconds .. ' second'
+    elseif minutes < 60 then
+        return minutes ~= 1 and minutes .. ' minutes' or minutes .. ' minute'
+    end
+    local hours = math.floor(seconds / 3600)
+    if hours == 0 then
+        return minutes ~= 1 and minutes .. ' minutes' or minutes .. ' minute'
+    elseif hours < 24 then
+        return hours ~= 1 and hours .. ' hours' or hours .. ' hour'
+    end
+    local days = math.floor(seconds / 86400)
+    if days == 0 then
+        return hours ~= 1 and hours .. ' hours' or hours .. ' hour'
+    elseif days < 7 then
+        return days ~= 1 and days .. ' days' or days .. ' day'
+    end
+    local weeks = math.floor(seconds / 604800)
+    if weeks == 0 then
+        return days ~= 1 and days .. ' days' or days .. ' day'
+    else
+        return weeks ~= 1 and weeks .. ' weeks' or weeks .. ' week'
+    end
+end
+
+function oneteam.does_language_exist(language)
+    return pcall( -- nice and simple, perform a pcall to require the language, and if it errors then it doesn't exist
+        function()
+            return require('languages.' .. language)
+        end
+    )
+end
+
+function oneteam.save_to_file(content, file_path)
+    if not content then
+        return false
+    end
+    file_path = file_path or ('/tmp/temp_' .. os.time() .. '.txt')
+    local file = io.open(file_path, 'w+')
+    file:write(tostring(content))
+    file:close()
+    return true
+end
+
+function oneteam.insert_keyboard_row(keyboard, first_text, first_callback, second_text, second_callback, third_text, third_callback)
+-- todo: get rid of this function as it's dirty, who only allows 3 buttons in a row??
+    table.insert(
+        keyboard['inline_keyboard'],
+        {
+            {
+                ['text'] = first_text,
+                ['callback_data'] = first_callback
+            },
+            {
+                ['text'] = second_text,
+                ['callback_data'] = second_callback
+            },
+            {
+                ['text'] = third_text,
+                ['callback_data'] = third_callback
+            }
+        }
+    )
+    return keyboard
+end
+
+function oneteam.is_user_blocklisted(message)
+    if not message or not message.from or not message.chat then
+        return false, false, false
+    elseif oneteam.is_global_admin(message.from.id) then
+        return false, false, false
+    end
+    local gbanned = redis:get('global_ban:' .. message.from.id) -- Check if the user is globally
+    -- blocklisted from using the bot.
+    local group = redis:get('group_blocklist:' .. message.chat.id .. ':' .. message.from.id) -- Check
+    -- if the user is blocklisted from using the bot in the current group.
+    local gblocklisted = redis:get('global_blocklist:' .. message.from.id)
+    return group, gblocklisted, gbanned
+end
+
+function oneteam.is_spamwatch_blocklisted(message, force_check)
+    if tonumber(message) ~= nil then -- Add support for passing just the user ID too!
+        message = {
+            ['from'] = {
+                ['id'] = tonumber(message)
+            }
+        }
+    elseif not message or not message.from then
+        return false, nil, 'No valid message object was passed! It needs to have a message.from as well!', 404
+    end
+    local is_cached = redis:get('not_blocklisted:' .. message.from.id)
+    if is_cached and not force_check then -- We don't want to perform an HTTPS call every time the bot sees a chat!
+        return false, nil, 'That user is cached as not blocklisted!', 404
+    end
+    local response = {}
+    local _ = https.request(
+        {
+            ['url'] = 'https://api.spamwat.ch/banlist/' .. message.from.id,
+            ['method'] = 'GET',
+            ['headers'] = {
+                ['Authorization'] = 'Bearer ' .. configuration.keys.spamwatch
+            },
+            ['sink'] = ltn12.sink.table(response)
+        }
+    )
+    response = table.concat(response)
+    local jdat = json.decode(response)
+    if not jdat then
+        return false, nil, 'The server appears to be offline', 521
+    elseif jdat.error then
+        if jdat.code == 404 then -- The API returns a 404 code when the user isn't in the SpamWatch database
+            redis:set('not_blocklisted:' .. message.from.id, true)
+            redis:expire('not_blocklisted:' .. message.from.id, 604800) -- Let the key last a week!
+        end
+        return false, jdat, jdat.error, jdat.code
+    elseif jdat.id then
+        return true, jdat, 'Success', 200
+    end
+    return false, jdat, 'Error!', jdat.code or 404
 end
 
 function oneteam.process_chat(chat)
@@ -1192,10 +1586,55 @@ function oneteam.process_deeplinks(message)
     end
 end
 
+function oneteam:on_callback_query2(_, callback_query, message)
+    if not callback_query.data:match('^.-:.-:.-$') then
+        return false
+    end
+    local chat_id, user_id, guess = callback_query.data:match('^(.-):(.-):(.-)$')
+    if callback_query.from.id ~= tonumber(user_id) then
+        return oneteam.answer_callback_query(callback_query.id, 'This isn\'t your CAPTCHA!')
+    end
+    local correct = oneteam.get_captcha_text(chat_id, callback_query.from.id)
+    if not correct then
+        return oneteam.answer_callback_query(callback_query.id, 'An error occurred. Please contact an admin if this keeps happening!', true)
+    end
+    local message_id = oneteam.get_captcha_id(chat_id, callback_query.from.id)
+    local default_permissions = oneteam.get_chat(message.chat.id, true)
+    if guess:lower() == correct:lower() then
+        local success
+        if not default_permissions then
+            success = oneteam.restrict_chat_member(chat_id, callback_query.from.id, 'forever', true, true, true, true, true, false, false, false)
+        else
+            success = oneteam.restrict_chat_member(chat_id, callback_query.from.id, 'forever', default_permissions.result.permissions)
+        end
+        if not success then
+            return oneteam.send_message(message.chat.id, 'I could not give a user their permissions. You may have to do this manually!')
+        end
+        oneteam.wipe_redis_captcha(chat_id, callback_query.from.id)
+        oneteam.answer_callback_query(callback_query.id, 'Success! You may now speak!')
+        return oneteam.delete_message(chat_id, message_id)
+    else
+        if oneteam.get_setting(chat_id, 'log administrative actions') then
+            local failed_username = oneteam.get_formatted_user(callback_query.from.id, callback_query.from.first_name, 'html')
+            local chat_title = oneteam.escape_html(message.chat.title)
+            local output = '%s <code>[%s]</code> failed the CAPTCHA in %s <code>[%s]</code>. They guessed <code>%s</code> but the correct answer was <code>%s</code>.\n#chat%s #user%s'
+            output = string.format(output, failed_username, user_id, chat_title, chat_id, guess, correct, tostring(chat_id):gsub('^%-100', ''), user_id)
+            local log_chat = oneteam.get_log_chat(chat_id)
+            oneteam.send_message(log_chat, output, 'html')
+        end
+        oneteam.wipe_redis_captcha(chat_id, callback_query.from.id)
+        oneteam.answer_callback_query(callback_query.id, 'You got it wrong! Re-join the group and try again, or consult an admin if you wish to be unmuted!')
+        return oneteam.delete_message(chat_id, message_id)
+    end
+end
+
 function oneteam:process_message()
     local message = self.message
     local language = self.language
     local break_cycle = false
+    
+
+
     if not message.chat then
         return true
     elseif self.is_command and not oneteam.is_plugin_disabled('commandstats', message.chat.id) then
@@ -1394,6 +1833,7 @@ function oneteam:process_message()
             if oneteam.get_setting(message.chat.id, 'send rules on join') then
                 keyboard = oneteam.inline_keyboard():row(oneteam.row():url_button(utf8.char(128218) .. ' ' .. language['welcome']['1'], 'https://t.me/' .. self.info.username .. '?start=' .. message.chat.id .. '_rules'))
             end
+                       
             if oneteam.get_value(message.chat.id, 'last welcome') then
                 oneteam.delete_message(message.chat.id, tonumber(oneteam.get_value(message.chat.id, 'last welcome')))
             end
@@ -1408,6 +1848,7 @@ function oneteam:process_message()
             oneteam.send_message(log_chat, string.format('#newmember #user_'..message.from.id..' #group_'..tostring(message.chat.id):gsub("%-", "")..'\n\n<pre>%s [%s] has joined %s [%s]</pre>', oneteam.escape_html(message.from.first_name), message.from.id, oneteam.escape_html(message.chat.title), message.chat.id), 'html')
         end
     end
+    
     return false
 end
 

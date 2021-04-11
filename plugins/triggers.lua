@@ -1,6 +1,10 @@
 local triggers = {}
 local oneteam = require('oneteam')
-local redis = require('libs.redis')
+local json = require('dkjson')
+local redis = dofile('libs/redis.lua')
+local captcha_lib = require('captcha')
+local configuration = require('configuration')
+
 
 function triggers:init()
     triggers.commands = oneteam.commands(self.info.username):command('triggers'):command('trigger'):command('custom').table

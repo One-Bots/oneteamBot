@@ -21,7 +21,7 @@ function addtrigger:on_message(message, _, language)
     local count = 0
     local is_duplicate = false
     local all = redis:hgetall('triggers:' .. message.chat.id)
-    for _, v in ipairs(all) do
+    for k, v in ipairs(all) do
         count = count + 1
         if v == trigger then
             is_duplicate = true

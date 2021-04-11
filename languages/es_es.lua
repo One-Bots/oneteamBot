@@ -7,7 +7,8 @@ return {
         ['unknown'] = 'I don\'t recognize that user. If you would like to teach me who they are, forward a message from them to any chat that I\'m in.',
         ['generic'] = 'An error occured!',
         ['use'] = 'You are not allowed to use this!',
-        ['private'] = 'You can only use this command in private chat!'
+        ['private'] = 'You can only use this command in private chat!',
+        ['nobeta'] = 'No betatesters group!, for see actual beta build go to BETATESTERS GROUP and send this command, and use the menu for select our device.'
     },
     ['addcommand'] = {
         ['1'] = 'Please specify the command in the format <code>/command - description</code>',
@@ -157,7 +158,7 @@ return {
         ['2'] = '%s is a user, this command is only for blocklisting chats such as groups and channels!',
         ['3'] = '%s doesn\'t appear to be a valid chat!'
     },
-    ['bugreport'] = {
+    ['bugr'] = {
         ['1'] = 'Success! Your bug report has been sent. The ID of this report is #%s.',
         ['2'] = 'There was a problem whilst reporting that bug! Ha, the irony!'
     },
@@ -440,7 +441,7 @@ System:
         ['1'] = '<b>%s</b> iOS %s\n\n<code>MD5 sum: %s\nSHA1 sum: %s\nFile size: %s GB</code>\n\n<i>%s %s</i>',
         ['2'] = 'This firmware is no longer being signed!',
         ['3'] = 'This firmware is still being signed!',
-        ['4'] = 'Plea4se select your model:',
+        ['4'] = 'Please select your model:',
         ['5'] = 'Please select your firmware version:',
         ['6'] = 'Please select your device type:',
         ['7'] = 'iPod Touch',
@@ -452,6 +453,35 @@ System:
         ['13'] = 'iBridge',
         ['14'] = 'Mac Mini'
     },
+
+['recovery'] = {
+        ['1'] = '<b>%s</b> \n\nCustom Recovery: %s\n<i>%s %s</i>',
+        ['2'] = 'This its not a actually valid Custom Recovery!',
+        ['3'] = 'This its a good Custom Recovery for OneOS!',
+        ['4'] = 'Please select your model:',
+        ['5'] = 'Please select your recovery:',
+        ['6'] = 'Select Your Device for Recovery Download \n\n*for flash recovery use actually custom recovery after download the file\n flash it with image - recovery partition \n\nor use fastboot with this command: \nfastboot flash recovery IMAGENAME.img\n remember substitute IMAGENAME with the name of the file*:',
+        ['7'] = '',
+        ['11'] = 'POCO',
+        ['13'] = 'MI',
+        ['15'] = 'CHANGELOG',
+        ['14'] = 'REDMI'
+    },
+
+    ['onebeta'] = {
+        ['1'] = '<b>%s</b> \n\nOneOS: %s\n\nMIUI: %s\n<i>%s %s</i>',
+        ['2'] = 'This its not a new beta build!',
+        ['3'] = 'This its a new beta build!',
+        ['4'] = 'Please select your model:',
+        ['5'] = 'Please select your firmware version:',
+        ['6'] = 'Select Your Device for OneOS BETA BUILD *only work on beta testers group*:',
+        ['7'] = '',
+        ['11'] = 'POCO',
+        ['13'] = 'MI',
+        ['15'] = 'CHANGELOG',
+        ['14'] = 'REDMI'
+    },
+
     ['ispwned'] = {
         ['1'] = 'That account was found in the following leaks:'
     },

@@ -3,7 +3,13 @@
 *.sh
 *.json
 *.tar
+*.bak
 plugins/appstore.lua
+plugins/betaprofile.lua
+plugins/onebeta.lua
+plugins/recovery.lua
+plugins/bugbeta.lua
+plugins/bugr.lua
 plugins/betaprofile.lua
 plugins/coronavirus.lua
 plugins/ipsw.lua

@@ -34,6 +34,81 @@ function utils.getKeysSortedByValue(tbl, sortFunction)
   return keys
 end
 
+function utils.get_user_count()
+    return #redis:keys('user:*:info')
+end
+
+function utils.get_group_count()
+    return #redis:keys('chat:*:info')
+end
+
+function utils.get_user_language(user_id)
+    return redis:hget('chat:' .. user_id .. ':settings', 'language') or 'en_gb'
+end
+
+function utils.get_log_chat(chat_id)
+    local chat = redis:hget('chat:' .. chat_id .. ':settings', 'log chat')
+    if chat ~= false and chat ~= nil then
+        return chat
+    end
+    return configuration.log_channel or false
+end
+
+function utils.set_captcha(chat_id, user_id, text, id, timeout)
+    local hash = string.format('chat:%s:captcha:%s', tostring(chat_id), tostring(user_id))
+    redis:hset(hash, 'id', id)
+    redis:hset(hash, 'text', text)
+    redis:set('captcha:' .. chat_id .. ':' .. user_id, true)
+    redis:expire('captcha:' .. chat_id .. ':' .. user_id, timeout)
+    return true
+end
+
+function utils.get_captcha_id(chat_id, user_id)
+    return redis:hget('chat:' .. chat_id .. ':captcha:' .. user_id, 'id') or false
+end
+
+function utils.get_captcha_text(chat_id, user_id)
+    return redis:hget('chat:' .. chat_id .. ':captcha:' .. user_id, 'text') or false
+end
+
+function utils.delete_redis_hash(hash, field)
+    return redis:hdel(hash, field)
+end
+
+function utils.wipe_redis_captcha(chat_id, user_id)
+    local hash = string.format('chat:%s:captcha:%s', tostring(chat_id), tostring(user_id))
+    redis:hdel(hash, 'id')
+    redis:hdel(hash, 'text')
+    return true
+end
+
+function utils.purge_user(user)
+    if type(user) ~= 'table' then
+        return false
+    end
+    user = user.from or user
+    redis:hdel('user:' .. user.id .. ':info', 'id')
+    if user.username or redis:hget('user:' .. user.id .. ':info', 'username') then
+        redis:hdel('user:' .. user.id .. ':info', 'username')
+        local all = redis:smembers('user:' .. user.id .. ':usernames')
+        for _, v in pairs(all) do
+            redis:srem('user:' .. user.id .. ':usernames', v)
+        end
+        redis:del('username:' .. user.id)
+    end
+    redis:hdel('user:' .. user.id .. ':info', 'first_name')
+    if user.name or redis:hget('user:' .. user.id .. ':info', 'name') then
+        redis:hdel('user:' .. user.id .. ':info', 'name')
+    end
+    if user.last_name or redis:hget('user:' .. user.id .. ':info', 'last_name') then
+        redis:hdel('user:' .. user.id .. ':info', 'last_name')
+    end
+    if user.language_code or redis:hget('user:' .. user.id .. ':info', 'language_code') then
+        redis:hdel('user:' .. user.id .. ':info', 'language_code')
+    end
+    return true
+end
+
 function utils.is_trusted_user(chat_id, user_id)
     if redis:sismember('administration:' .. chat_id .. ':trusted', user_id) then
         return true
@@ -197,8 +272,14 @@ function utils.get_inline_help(input, offset)
     offset = offset and tonumber(offset) or 0
     local inline_help = {}
     local count = offset + 1
-    table.sort(oneteam.plugin_list)
-    for k, v in pairs(oneteam.plugin_list) do
+    local plugin_list = oneteam.plugin_list
+    for _, plugin in pairs(oneteam.administrative_plugin_list) do
+        if not tools.table_contains(plugin_list, plugin) then
+            table.insert(plugin_list, plugin)
+        end
+    end
+    table.sort(plugin_list)
+    for k, v in pairs(plugin_list) do
         -- The bot API only accepts a maximum of 50 results, hence we need the offset.
         if k > offset and k < offset + 50 then
             v = v:gsub('\n', ' ')
@@ -219,6 +300,84 @@ function utils.get_inline_help(input, offset)
     end
     return inline_help
 end
+
+function utils.string_to_time(str, is_temp_ban)
+    if not str then
+        return false
+	end
+    str = tostring(str):gsub('%s', '')
+    local base_date = {
+        ['year'] = 1970,
+        ['month'] = 1,
+        ['day'] = 1,
+        ['hour'] = 0,
+        ['min'] = 0,
+        ['sec'] = 0
+    }
+    local units = {
+        ['y'] = 'year',
+        ['year'] = 'year',
+        ['years'] = 'year',
+        ['mo'] = 'month',
+        ['month'] = 'month',
+        ['months'] = 'month',
+        ['w'] = '7day',
+        ['week'] = '7day',
+        ['weeks'] = '7day',
+        ['d'] = 'day',
+        ['day'] = 'day',
+        ['days'] = 'day',
+        ['h'] = 'hour',
+        ['hour'] = 'hour',
+        ['hours'] = 'hour',
+        ['m'] = 'min',
+        ['min'] = 'min',
+        ['mins'] = 'min',
+        ['minute'] = 'min',
+        ['minutes'] = 'min',
+        ['s'] = 'sec',
+        ['sec'] = 'sec',
+        ['secs'] = 'sec',
+        ['second'] = 'sec',
+        ['seconds'] = 'sec'
+    }
+    for number, unit in str:gmatch('(%d+)(%a+)') do
+        local amount, field = units[unit]:match('^(%d*)(%a+)$')
+        base_date[field] = base_date[field] + tonumber(number) * (tonumber(amount) or 1)
+    end
+    local final_length = os.time(base_date)
+    if is_temp_ban and final_length <= 59 then
+    return false
+        end
+    return final_length
+end
+
+function utils.increase_administrative_action(chat_id, user_id, action, increase_by)
+    if not increase_by or tonumber(increase_by) == nil then
+        increase_by = 1
+    end
+    local hash = string.format('chat:%s:%s', chat_id, user_id)
+    return redis:hincrby(hash, action, increase_by)
+end
+
+function utils.is_allowlisted_link(link, chat_id)
+    if link == 'username' or link == 'isiswatch' or link == 'oneteam' or link == 'telegram' then
+        return true
+    elseif chat_id and redis:get('allowlisted_links:' .. chat_id .. ':' .. link:lower()) then
+        return true
+	end
+	return false
+end
+
+function utils.get_chat_members(chat_id)
+    return redis:smembers('chat:' .. chat_id .. ':users')
+end
+
+function utils.is_privacy_enabled(user_id)
+    return redis:exists('user:' .. user_id .. ':opt_out')
+end
+
+
 
 function utils.get_inline_list(query, offset)
     query = query or ''
@@ -469,6 +628,13 @@ function utils.get_value(chat_id, value)
     return redis:hget('chat:' .. chat_id .. ':values', tostring(value))
 end
 
+function utils.set_value(chat_id, key, value)
+    if not chat_id or not key or not value then
+        return false
+    end
+    return redis:hset('chat:' .. chat_id .. ':info', tostring(key), tostring(value))
+end
+
 function utils.log_error(error_message)
     error_message = tostring(error_message):gsub('%%', '%%%%')
     local output = string.format('%s[31m[Error] %s%s[0m', string.char(27), error_message, string.char(27))
@@ -480,6 +646,13 @@ function utils.set_command_action(chat_id, message_id, command)
     return redis:set(hash, command)
 end
 
+function utils.increase_administrative_action(chat_id, user_id, action, increase_by)
+    if not increase_by or tonumber(increase_by) == nil then
+        increase_by = 1
+    end
+    local hash = string.format('chat:%s:%s', chat_id, user_id)
+    return redis:hincrby(hash, action, increase_by)
+end
 
 function utils.write_file(file_path, content)
     file_path = tostring(file_path)
@@ -494,6 +667,15 @@ function utils.does_language_exist(language)
     return pcall(function()
         return dofile('languages/' .. language .. '.lua')
     end)
+end
+
+function utils.is_allowlisted_link(link, chat_id)
+    if link == 'username' or link == 'isiswatch' or link == 'oneteam' or link == 'telegram' then
+        return true
+    elseif chat_id and redis:get('allowlisted_links:' .. chat_id .. ':' .. link:lower()) then
+        return true
+    end
+    return false
 end
 
 function utils.get_usernames(user_id)
@@ -523,6 +705,10 @@ function utils.is_valid(message) -- Performs basic checks on the message object 
     return true
 end
 
+function utils.get_chat_members(chat_id)
+    return redis:smembers('chat:' .. chat_id .. ':users')
+end
+
 function utils.insert_keyboard_row(keyboard, first_text, first_callback, second_text, second_callback, third_text, third_callback)
     table.insert(keyboard['inline_keyboard'], {
         {
@@ -539,6 +725,10 @@ function utils.insert_keyboard_row(keyboard, first_text, first_callback, second_
         }
     })
     return keyboard
+end
+
+function utils.is_privacy_enabled(user_id)
+    return redis:exists('user:' .. user_id .. ':opt_out')
 end
 
 function oneteam.get_inline_list(username, offset)
@@ -887,6 +1077,13 @@ function utils.is_gban_admin(id)
         end
     end
     return false
+end
+
+function utils.command_action(chat_id, message_id)
+    if not chat_id or not message_id then
+    	return false
+    end
+    return string.format('action:%s:%s', chat_id, message_id)
 end
 
 function utils.is_group_mod(chat_id, user_id)
