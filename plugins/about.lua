@@ -8,7 +8,7 @@ end
 
 function about:on_message(message)
     local developer = oneteam.get_formatted_user(4416003, 'BadWolf', 'html')
-    local output = 'Created by %s. Powered by <code>One v%s</code> and %s. Latest stable source code available <a href="https://github.com/One-Bots/oneteamBot">on GitHub</a>.'
+    local output = 'Created by %s. Powered by <code>ONE v%s</code> and %s. Latest stable source code available <a href="https://github.com/One-Bots/oneteamBot">on GitHub</a>.'
     return oneteam.send_message(message.chat.id, string.format(output, developer, self.version, utf8.char(10084)), 'html')
 end
 

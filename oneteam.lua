@@ -1562,11 +1562,7 @@ function oneteam:process_language(message)
                 redis:sadd('oneteam:missing_languages', message.from.language_code)
             end
             if (message.text == '/start' or message.text == '/start@' .. self.info.username) and message.chat.type == 'private' then
-                oneteam.send_message(
-                    message.chat.id,
-                    'It appears that I haven\'t got a translation in your language (' .. message.from.language_code .. ') yet. If you would like to voluntarily translate me into your language, please join <a href="https://t.me/oneteamDev">my official development group</a>. Thanks!',
-                    'html'
-                )
+                
             end
         elseif redis:sismember('oneteam:missing_languages', message.from.language_code) then
         -- If the language file is found, yet it's recorded as missing in the database, it's probably

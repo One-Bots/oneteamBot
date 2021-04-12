@@ -474,7 +474,7 @@ System:
         ['3'] = 'This its a new beta build!',
         ['4'] = 'Please select your model:',
         ['5'] = 'Please select your firmware version:',
-        ['6'] = 'Select Your Device for OneOS BETA BUILD *only work on beta testers group*:',
+        ['6'] = 'Select Your Device for OneOS BETA BUILD \n\n*This only work on beta testers group*:',
         ['7'] = '',
         ['11'] = 'POCO',
         ['13'] = 'MI',
@@ -797,38 +797,38 @@ System:
         ['5'] = 'Successfully downloaded the file to the server - it can be found at <code>%s</code>!'
     },
     ['version'] = {
-        ['1'] = '@%s AKA %s `[%s]` is running One %s, created by [BadWolf](https://t.me/lobomalo_soydegatita). The source code is available on [GitHub](https://github.com/One-Bots/oneteamBot).'
+        ['1'] = '@%s AKA %s `[%s]` está ejecutando ONE %s, creado por [BadWolf](https://t.me/lobomalo_soydegatita). El código fuente está disponible en [GitHub](https://github.com/One-Bots/oneteamBot).'
     },
     ['voteban'] = {
-        ['1'] = 'Which user would you like to open up a vote-ban for? You can specify this user by their @username or numerical ID.',
-        ['2'] = 'I cannot setup a vote-ban for this user because they are a moderator or an administrator in this chat.',
-        ['3'] = 'I cannot setup a vote-ban for this user because they have already left (or been kicked from) this chat.',
-        ['4'] = 'Should %s [%s] be banned from %s? %s upvotes are required for an immediate ban, and %s downvotes are required for this vote to be closed.',
-        ['5'] = 'Yes [%s]',
+        ['1'] = '¿Para qué usuario le gustaría abrir una prohibición de voto? Puede especificar este usuario por su @nombre de usuario o ID numérico.',
+        ['2'] = 'No puedo configurar una prohibición de voto para este usuario porque es un moderador o un administrador en este chat.',
+        ['3'] = 'No puedo configurar una prohibición de voto para este usuario porque ya ha abandonado (o ha sido expulsado) de este chat.',
+        ['4'] = '¿Debería prohibirse %s [%s] en %s? Se requieren %s votos a favor para una prohibición inmediata, y %s votos en contra para cerrar esta votación.',
+        ['5'] = 'Si [%s]',
         ['6'] = 'No [%s]',
-        ['7'] = 'The people have spoken. I have banned %s [%s] from %s because %s people voted for me to do so.',
-        ['8'] = 'The required upvote amount was reached, however, I was unable to ban %s - perhaps they\'ve left the group or been promoted since we opened the vote to ban them? It\'s either that, or I no longer have the administrative privileges required in order to perform this action!',
-        ['9'] = 'The people have spoken. I haven\'t banned %s [%s] from %s because the required %s people downvoted the decision to ban them.',
-        ['10'] = 'You upvoted the decision to ban %s [%s]!',
-        ['11'] = 'Your current vote has been retracted, use the buttons again to re-submit your vote.',
-        ['12'] = 'You downvoted the decision to ban %s [%s]!',
-        ['13'] = 'A vote-ban has already been opened for this user!'
+        ['7'] = 'La gente ha hablado. He prohibido a %s [%s] de %s porque %s personas votaron por mí.',
+        ['8'] = 'Se alcanzó la cantidad de votos a favor requerida, sin embargo, no pude prohibir a% s. ¿Quizás han abandonado el grupo o han sido promovidos desde que abrimos la votación para prohibirlos? ¡Es eso, o ya no tengo los privilegios administrativos necesarios para realizar esta acción!',
+        ['9'] = 'La gente ha hablado. No he prohibido a %s [%s] de %s porque las %s personas requeridas rechazaron la decisión de prohibirlas.',
+        ['10'] = '¡Has votado a favor de la decisión de prohibir %s [%s]!',
+        ['11'] = 'Su voto actual ha sido retirado, use los botones nuevamente para volver a enviar su voto.',
+        ['12'] = '¡Has rechazado la decisión de prohibir %s [%s]!',
+        ['13'] = '¡Ya se ha abierto una prohibición de voto para este usuario!'
     },
     ['weather'] = {
-        ['1'] = 'You don\'t have a location set. Use /setloc <location> to set one.',
-        ['2'] = 'It\'s currently %s (feels like %s) in %s. %s'
+        ['1'] = 'No tienes una ubicación establecida. Utilice /setloc <ubicación> para establecer uno.',
+        ['2'] = 'Actualmente está %s (se siente como %s) en %s. %s'
     },
     ['welcome'] = {
-        ['1'] = 'Group Rules'
+        ['1'] = 'Reglas del Grupo'
     },
     ['allowlist'] = {
-        ['1'] = 'Which user would you like me to allowlist? You can specify this user by their @username or numerical ID.',
-        ['2'] = 'I cannot allowlist this user because they are a moderator or an administrator in this chat.',
-        ['3'] = 'I cannot allowlist this user because they have already left this chat.',
-        ['4'] = 'I cannot allowlist this user because they have already been banned from this chat.'
+        ['1'] = '¿A qué usuario le gustaría que permitiera la lista? Puede especificar este usuario por su @nombre de usuario o ID numérico.',
+        ['2'] = 'No puedo permitir la lista de este usuario porque es un moderador o un administrador en este chat.',
+        ['3'] = 'No puedo permitir la lista de este usuario porque ya ha abandonado este chat.',
+        ['4'] = 'No puedo permitir a este usuario en la lista porque ya ha sido expulsado de este chat.'
     },
     ['betaprofile'] = {
-        ['1'] = '/betaprofile - Developer beta profiles to access the latest versions of iOS, it is advisable to download this profile from the device you want to use for it, if you want to block OTA updates, simply install the profile 🚫 NO OTAs.',
-        ['2'] = 'Developer beta profiles to access the latest versions of iOS, it is advisable to download this profile from the device you want to use for it, if you want to block OTA updates, simply install the profile 🚫 NO OTAs.'
+        ['1'] = '/betaprofile - Desarrollador de perfiles beta para acceder a las últimas versiones de iOS, es recomendable descargar este perfil desde el dispositivo que quieras usar para él, si quieres bloquear las actualizaciones OTA, simplemente instala el perfil 🚫 NO OTAs.',
+        ['2'] = 'Desarrollador de perfiles beta para acceder a las últimas versiones de iOS, es recomendable descargar este perfil desde el dispositivo que quieras usar para él, si quieres bloquear las actualizaciones OTA, simplemente instala el perfil 🚫 NO OTAs.'
     }
 }

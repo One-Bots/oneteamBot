@@ -6,7 +6,10 @@
 plugins/*.bak
 plugins/appstore.lua
 plugins/betaprofile.lua
+plugins/muteall.lua
+plugins/unmuteall.lua
 plugins/onebeta.lua
+plugins/broadcast.lua
 plugins/recovery.lua
 plugins/bugbeta.lua
 plugins/bugr.lua

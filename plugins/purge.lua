@@ -1,14 +1,9 @@
---[[
-    Copyright 2017 Diego Barreiro <diego@makeroid.io>
-    This code is licensed under the MIT. See LICENSE for details.
-]]
-
 local purge = {}
 local oneteam = require('oneteam')
 
 function purge:init()
     purge.commands = oneteam.commands(self.info.username):command('purge').table
-    purge.help = '/purge <1-25> - Deletes the previous X messages, where X is the number specified between 1 and 25 inclusive.'
+    purge.help = '/purge <1-80> - Deletes the previous X messages, where X is the number specified between 1 and 999 inclusive.'
 end
 
 function purge:on_message(message, configuration, language)
@@ -39,19 +34,19 @@ function purge:on_message(message, configuration, language)
     then
         return oneteam.send_reply(
             message,
-            'Please specify a numeric value, between 1 and 25 inclusive.'
+            'Please specify a numeric value, between 1 and 999 inclusive.'
         )
     elseif tonumber(input) < 1
     then
         return oneteam.send_reply(
             message,
-            'That number is too small! You must specify a number between 1 and 25 inclusive.'
+            'That number is too small! You must specify a number between 1 and 999 inclusive.'
         )
-    elseif tonumber(input) > 25
+    elseif tonumber(input) > 999
     then
         return oneteam.send_reply(
             message,
-            'That number is too large! You must specify a number between 1 and 25 inclusive.'
+            'That number is too large! You must specify a number between 1 and 999 inclusive.'
         )
     end
     local current = 0

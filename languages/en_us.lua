@@ -444,7 +444,7 @@ System:
         ['3'] = 'This its a new beta build!',
         ['4'] = 'Please select your model:',
         ['5'] = 'Please select your firmware version:',
-        ['6'] = 'Select Your Device for OneOS BETA BUILD *only work on beta testers group*:',
+        ['6'] = 'Select Your Device for OneOS BETA BUILD \n\n*This only work on beta testers group*:',
         ['7'] = '',
         ['11'] = 'POCO',
         ['13'] = 'MI',
